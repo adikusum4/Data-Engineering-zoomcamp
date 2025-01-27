@@ -18,13 +18,11 @@ services:
       PGADMIN_DEFAULT_EMAIL: "pgadmin@pgadmin.com"
       PGADMIN_DEFAULT_PASSWORD: "pgadmin"
     ports:
-      - "8081:80"
+      - "8080:80"
 
     volumes:
       - vol-pgadmin_data:/var/lib/pgadmin  
       
-    extra_hosts:
-      - "localhost:127.0.0.1"  # Add this line to help binding
 
 volumes:
   vol-pgdata:
