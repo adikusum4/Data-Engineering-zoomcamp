@@ -1,19 +1,33 @@
 services:
-  pgdatabase:
-    image: postgres:13
+  db:
+    container_name: postgres
+    image: postgres:17-alpine
     environment:
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=root
-      - POSTGRES_DB=ny_taxi
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+      POSTGRES_DB: 'ny_taxi'
+    ports:
+      - '5433:5432'
     volumes:
-      - "./ny_taxi_postgres_data:/var/lib/postgresql/data:rw"
-    ports:
-      - "5432:5432"
+      - vol-pgdata:/var/lib/postgresql/data
+
   pgadmin:
-    image: dpage/pgadmin4
+    container_name: pgadmin
+    image: dpage/pgadmin4:latest
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=root
+      PGADMIN_DEFAULT_EMAIL: "pgadmin@pgadmin.com"
+      PGADMIN_DEFAULT_PASSWORD: "pgadmin"
     ports:
-      - "8080:80"
-    
+      - "8081:80"
+
+    volumes:
+      - vol-pgadmin_data:/var/lib/pgadmin  
+      
+    extra_hosts:
+      - "localhost:127.0.0.1"  # Add this line to help binding
+
+volumes:
+  vol-pgdata:
+    name: vol-pgdata
+  vol-pgadmin_data:
+    name: vol-pgadmin_data
