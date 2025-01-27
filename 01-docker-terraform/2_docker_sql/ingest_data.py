@@ -6,6 +6,8 @@ import argparse
 from time import time
 import pandas as pd
 from sqlalchemy import create_engine
+import gzip
+import shutil
 
 def main(params):
     user = params.user
@@ -16,50 +18,56 @@ def main(params):
     table_name = params.table_name
     url = params.url
     
-    # Mengunduh file CSV
+    # Define the file name based on URL extension
     if url.endswith('.csv.gz'):
-        csv_name = 'green_tripdata_2019-10.csv.gz'  # Ganti dengan nama file sesuai yang diunduh
+        csv_name = 'green_tripdata_2019-10.csv.gz'  # Adjust this based on your file
     else:
-        csv_name = 'taxi_zone_lookup.csv'  # Ganti dengan nama file sesuai yang diunduh
-
-    # Mengunduh file CSV
+        csv_name = 'taxi_zone_lookup.csv'  # Adjust for other cases
+    
+    # Download file
+    print(f"Downloading file from {url}...")
     os.system(f"wget {url} -O {csv_name}")
-
-    # Membuat koneksi ke PostgreSQL
+    
+    # If the file is gzipped, we need to unzip it
+    if csv_name.endswith('.gz'):
+        print(f"Unzipping {csv_name}...")
+        with gzip.open(csv_name, 'rb') as f_in:
+            with open(csv_name[:-3], 'wb') as f_out:  # Remove .gz extension for output
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(csv_name)  # Remove the gzipped file after extraction
+        csv_name = csv_name[:-3]  # Update file name to the unzipped version
+    
+    # Create a connection to PostgreSQL
     engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
-
-    # Membaca file CSV dalam chunk
+    
+    # Read the CSV file in chunks
     df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
-
-    # Memuat chunk pertama
+    
+    # Insert the first chunk
     df = next(df_iter)
-
-    # Konversi tanggal jika ada kolom tanggal
+    # Handle datetime columns if they exist
     if 'tpep_pickup_datetime' in df.columns:
-        df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
+        df['tpep_pickup_datetime'] = pd.to_datetime(df['tpep_pickup_datetime'])
     if 'tpep_dropoff_datetime' in df.columns:
-        df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
+        df['tpep_dropoff_datetime'] = pd.to_datetime(df['tpep_dropoff_datetime'])
 
-    # Memuat data ke tabel PostgreSQL
-    df.head(n=0).to_sql(name=table_name, con=engine, if_exists='replace')  # Menyiapkan tabel jika belum ada
-    df.to_sql(name=table_name, con=engine, if_exists='append')  # Menambah data ke tabel
+    # Create table in PostgreSQL if not exists, then insert the first chunk
+    df.head(0).to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+    df.to_sql(name=table_name, con=engine, if_exists='append', index=False)
 
-    # Menyelesaikan proses memuat data jika ada data lebih banyak
+    # Ingest remaining chunks
     while True:
         try:
             t_start = time()
-
             df = next(df_iter)
             if 'tpep_pickup_datetime' in df.columns:
-                df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
+                df['tpep_pickup_datetime'] = pd.to_datetime(df['tpep_pickup_datetime'])
             if 'tpep_dropoff_datetime' in df.columns:
-                df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
+                df['tpep_dropoff_datetime'] = pd.to_datetime(df['tpep_dropoff_datetime'])
 
-            df.to_sql(name=table_name, con=engine, if_exists='append')
-
+            df.to_sql(name=table_name, con=engine, if_exists='append', index=False)
             t_end = time()
-
-            print('Inserted another chunk, took %.3f second' % (t_end - t_start))
+            print(f'Inserted another chunk, took {t_end - t_start:.3f} seconds')
 
         except StopIteration:
             print("Finished ingesting data into PostgreSQL")
@@ -68,15 +76,14 @@ def main(params):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Ingest CSV data to Postgres')
 
-    # Parameter untuk koneksi PostgreSQL
-    parser.add_argument('--user', required=True, help='user name for PostgreSQL')
-    parser.add_argument('--password', required=True, help='password for PostgreSQL')
-    parser.add_argument('--host', required=True, help='host for PostgreSQL')
-    parser.add_argument('--port', required=True, help='port for PostgreSQL')
-    parser.add_argument('--db', required=True, help='database name for PostgreSQL')
-    parser.add_argument('--table_name', required=True, help='name of the table where we will write the results to')
+    # Parameters for PostgreSQL connection
+    parser.add_argument('--user', required=True, help='Username for PostgreSQL')
+    parser.add_argument('--password', required=True, help='Password for PostgreSQL')
+    parser.add_argument('--host', required=True, help='Host for PostgreSQL')
+    parser.add_argument('--port', required=True, help='Port for PostgreSQL')
+    parser.add_argument('--db', required=True, help='Database name for PostgreSQL')
+    parser.add_argument('--table_name', required=True, help='Name of the table where we will write the results')
     parser.add_argument('--url', required=True, help='URL of the CSV file')
 
     args = parser.parse_args()
-
     main(args)
